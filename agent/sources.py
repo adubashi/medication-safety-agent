@@ -44,6 +44,15 @@ def _get(handle: str, path: str, params: dict[str, Any] | None = None) -> Any:
     response = httpx.get(url, params=params, headers=headers, timeout=30)
     if response.status_code == 404:
         return None  # openFDA answers 404 for "no matches"
+    if response.status_code >= 400:
+        # Say who refused: a governed denial from the gateway, or the upstream itself.
+        log.warning(
+            "%s%s answered %s: %s",
+            handle,
+            path,
+            response.status_code,
+            response.text[:300].replace("\n", " "),
+        )
     response.raise_for_status()
     return response.json()
 
@@ -52,7 +61,30 @@ def _get(handle: str, path: str, params: dict[str, Any] | None = None) -> Any:
 
 
 def normalize_drug(name: str) -> dict[str, str] | None:
-    """Map a brand or misspelled name to its RxNorm ingredient, e.g. Advil -> ibuprofen."""
+    """Map a brand or misspelled name to its ingredient, e.g. Advil -> ibuprofen.
+
+    RxNorm first; if RxNorm refuses or fails, fall back to the openFDA label index.
+    """
+    try:
+        return _normalize_rxnorm(name)
+    except httpx.HTTPError as exc:
+        log.warning("RxNorm lookup for %r failed (%s); falling back to openFDA", name, exc)
+        return _normalize_openfda(name)
+
+
+def _normalize_openfda(name: str) -> dict[str, str] | None:
+    for field in ("openfda.brand_name.exact", "openfda.generic_name.exact"):
+        found = _get("openfda", "/drug/label.json", {"search": f'{field}:"{name.upper()}"', "limit": 5})
+        for label in (found or {}).get("results") or []:
+            fda = label.get("openfda", {})
+            generic = (fda.get("generic_name") or [""])[0]
+            if generic and " AND " not in generic:  # single-ingredient product only
+                rxcui = (fda.get("rxcui") or [""])[0]
+                return {"input": name, "ingredient": generic.lower(), "rxcui": rxcui, "source": "openFDA"}
+    return None
+
+
+def _normalize_rxnorm(name: str) -> dict[str, str] | None:
     match = _get("rxnav", "/REST/approximateTerm.json", {"term": name, "maxEntries": 1})
     candidates = (match or {}).get("approximateGroup", {}).get("candidate") or []
     if not candidates:
