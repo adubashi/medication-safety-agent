@@ -1,0 +1,3 @@
+name: medication-safety-agent
+framework: langgraph
+entrypoint: agent.main:run

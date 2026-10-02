@@ -1,0 +1,6 @@
+langchain-core>=1.0
+langchain-openai>=1.0
+langchain-google-genai>=4.0.0
+google-genai
+langgraph>=1.0
+httpx
