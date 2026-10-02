@@ -37,7 +37,10 @@ def _get(handle: str, path: str, params: dict[str, Any] | None = None) -> Any:
     headers = {"User-Agent": USER_AGENT, "Accept": "application/json"}
     if gateway:
         url = f"{gateway.rstrip('/')}/{handle}{path}"
-        headers["Authorization"] = f"Bearer {os.environ['TRASE_RUN_CREDENTIAL']}"
+        # The run credential rides x-trase-assertion, not Authorization: on these no-credential
+        # connections the gateway forwards Authorization to the upstream untouched, and RxNorm
+        # rejects any request carrying one (403). The authorizer reads x-trase-assertion first.
+        headers["x-trase-assertion"] = os.environ["TRASE_RUN_CREDENTIAL"]
     else:
         url = f"{CONNECTIONS[handle]}{path}"
     log.info("GET %s%s via connection %r", handle, path, handle)
